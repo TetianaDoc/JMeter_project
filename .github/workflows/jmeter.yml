@@ -47,10 +47,10 @@ env:
 jobs:
   validate-jmx:
     name: Validate JMX Test Plan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Validate XML syntax of JMX files
         run: |
@@ -71,13 +71,13 @@ jobs:
           echo "JMX structure check passed (Admin, Editor, Anonymous thread groups and User actions fragment verified)."
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: "17"
           distribution: "temurin"
 
       - name: Cache JMeter and Plugins
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         id: jmeter-cache
         with:
           path: /opt/apache-jmeter-${{ env.JMETER_VERSION }}
@@ -107,19 +107,19 @@ jobs:
     name: Run JMeter Smoke Test
     needs: validate-jmx
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: "17"
           distribution: "temurin"
 
       - name: Restore cached JMeter and Plugins
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         id: jmeter-cache
         with:
           path: /opt/apache-jmeter-${{ env.JMETER_VERSION }}
@@ -178,7 +178,7 @@ jobs:
 
       - name: Upload JMeter Test Results & HTML Report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: jmeter-smoke-test-report-${{ github.run_number }}
           path: results/

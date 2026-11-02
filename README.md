@@ -103,3 +103,12 @@ jmeter -n -t TestPlan_smoke_1000_posts_task7.jmx \
   -JMAX_NUMBER_OF_POSTS=100 \
   -l results.jtl
 ```
+
+### GitHub Actions CI (`.github/workflows/jmeter.yml`)
+- **Automatic Validation (`push` & `pull_request` on `main`):**
+  - Validates XML syntax (`xmllint`) and required JMeter test plan elements (`Admin`, `Editor`, `Anonymous` Thread Groups and `User actions` Test Fragment).
+  - Installs Apache JMeter 5.4.3 and uses `PluginsManagerCMD` (`install-for-jmx`) to verify and cache all required JMeter plugins.
+- **On-Demand Smoke Test Execution (`workflow_dispatch`):**
+  - Can be triggered manually from the **Actions** tab with customizable inputs (`domain`, `port`, `users`, `rampup`, `duration`, `max_posts`).
+  - Automatically generates fallback CSV test data if missing and uploads the `.jtl` results, `jmeter.log`, and the generated HTML Dashboard Report as workflow artifacts.
+

@@ -1,0 +1,185 @@
+name: JMeter CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "Target SUT domain or IP"
+        required: false
+        default: "192.168.56.101"
+        type: string
+      port:
+        description: "Target SUT port"
+        required: false
+        default: "80"
+        type: string
+      users:
+        description: "Number of virtual users (USERS)"
+        required: false
+        default: "1"
+        type: string
+      rampup:
+        description: "Ramp-up period in seconds (RAMPUP)"
+        required: false
+        default: "1"
+        type: string
+      duration:
+        description: "Test duration in seconds (DURATION)"
+        required: false
+        default: "60"
+        type: string
+      max_posts:
+        description: "Maximum number of posts (MAX_NUMBER_OF_POSTS)"
+        required: false
+        default: "100"
+        type: string
+
+env:
+  JMETER_VERSION: "5.4.3"
+  CMDRUNNER_VERSION: "2.3"
+  PLUGINS_MANAGER_VERSION: "1.10"
+  JMX_FILE: "TestPlan_smoke_1000_posts_task7.jmx"
+
+jobs:
+  validate-jmx:
+    name: Validate JMX Test Plan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate XML syntax of JMX files
+        run: |
+          sudo apt-get update -y && sudo apt-get install -y libxml2-utils
+          for file in *.jmx; do
+            echo "Validating XML syntax for $file..."
+            xmllint --noout "$file"
+          done
+          echo "All JMX files have valid XML syntax."
+
+      - name: Validate TestPlan structure and required elements
+        run: |
+          xmllint --xpath '//jmeterTestPlan/hashTree/TestPlan' "$JMX_FILE" > /dev/null
+          xmllint --xpath '//ThreadGroup[@testname="Admin"]' "$JMX_FILE" > /dev/null
+          xmllint --xpath '//ThreadGroup[@testname="Editor"]' "$JMX_FILE" > /dev/null
+          xmllint --xpath '//ThreadGroup[@testname="Anonymous"]' "$JMX_FILE" > /dev/null
+          xmllint --xpath '//TestFragmentController[@testname="User actions"]' "$JMX_FILE" > /dev/null
+          echo "JMX structure check passed (Admin, Editor, Anonymous thread groups and User actions fragment verified)."
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Cache JMeter and Plugins
+        uses: actions/cache@v4
+        id: jmeter-cache
+        with:
+          path: /opt/apache-jmeter-${{ env.JMETER_VERSION }}
+          key: jmeter-${{ env.JMETER_VERSION }}-plugins-${{ hashFiles('*.jmx') }}
+
+      - name: Install Apache JMeter and JMeter Plugins
+        if: steps.jmeter-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fSL "https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz" -o /tmp/jmeter.tgz
+          sudo tar -xzf /tmp/jmeter.tgz -C /opt
+          sudo chown -R "$USER:$USER" "/opt/apache-jmeter-${JMETER_VERSION}"
+
+          JMETER_HOME="/opt/apache-jmeter-${JMETER_VERSION}"
+          curl -fSL "https://repo1.maven.org/maven2/kg/apc/cmdrunner/${CMDRUNNER_VERSION}/cmdrunner-${CMDRUNNER_VERSION}.jar" \
+            -o "${JMETER_HOME}/lib/cmdrunner-${CMDRUNNER_VERSION}.jar"
+          curl -fSL "https://repo1.maven.org/maven2/kg/apc/jmeter-plugins-manager/${PLUGINS_MANAGER_VERSION}/jmeter-plugins-manager-${PLUGINS_MANAGER_VERSION}.jar" \
+            -o "${JMETER_HOME}/lib/ext/jmeter-plugins-manager-${PLUGINS_MANAGER_VERSION}.jar"
+
+          java -cp "${JMETER_HOME}/lib/ext/jmeter-plugins-manager-${PLUGINS_MANAGER_VERSION}.jar" \
+            org.jmeterplugins.repository.PluginManagerCMDInstaller
+
+          java -jar "${JMETER_HOME}/lib/cmdrunner-${CMDRUNNER_VERSION}.jar" \
+            --tool org.jmeterplugins.repository.PluginManagerCMD \
+            install-for-jmx "${GITHUB_WORKSPACE}/${JMX_FILE}"
+
+  run-smoke-test:
+    name: Run JMeter Smoke Test
+    needs: validate-jmx
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Restore cached JMeter and Plugins
+        uses: actions/cache@v4
+        id: jmeter-cache
+        with:
+          path: /opt/apache-jmeter-${{ env.JMETER_VERSION }}
+          key: jmeter-${{ env.JMETER_VERSION }}-plugins-${{ hashFiles('*.jmx') }}
+
+      - name: Install Apache JMeter and JMeter Plugins (if cache missed)
+        if: steps.jmeter-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fSL "https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz" -o /tmp/jmeter.tgz
+          sudo tar -xzf /tmp/jmeter.tgz -C /opt
+          sudo chown -R "$USER:$USER" "/opt/apache-jmeter-${JMETER_VERSION}"
+
+          JMETER_HOME="/opt/apache-jmeter-${JMETER_VERSION}"
+          curl -fSL "https://repo1.maven.org/maven2/kg/apc/cmdrunner/${CMDRUNNER_VERSION}/cmdrunner-${CMDRUNNER_VERSION}.jar" \
+            -o "${JMETER_HOME}/lib/cmdrunner-${CMDRUNNER_VERSION}.jar"
+          curl -fSL "https://repo1.maven.org/maven2/kg/apc/jmeter-plugins-manager/${PLUGINS_MANAGER_VERSION}/jmeter-plugins-manager-${PLUGINS_MANAGER_VERSION}.jar" \
+            -o "${JMETER_HOME}/lib/ext/jmeter-plugins-manager-${PLUGINS_MANAGER_VERSION}.jar"
+
+          java -cp "${JMETER_HOME}/lib/ext/jmeter-plugins-manager-${PLUGINS_MANAGER_VERSION}.jar" \
+            org.jmeterplugins.repository.PluginManagerCMDInstaller
+
+          java -jar "${JMETER_HOME}/lib/cmdrunner-${CMDRUNNER_VERSION}.jar" \
+            --tool org.jmeterplugins.repository.PluginManagerCMD \
+            install-for-jmx "${GITHUB_WORKSPACE}/${JMX_FILE}"
+
+      - name: Generate dummy CSV files if missing & prepare CI JMX
+        run: |
+          mkdir -p ci-data results
+
+          if [ ! -f ci-data/login_admin_user.csv ]; then
+            printf "USERNAME_ADMIN,PASSWORD_ADMIN\nadmin,admin\n" > ci-data/login_admin_user.csv
+          fi
+          if [ ! -f ci-data/login_editor_user.csv ]; then
+            printf "USERNAME,PASSWORD\neditor,editor\n" > ci-data/login_editor_user.csv
+          fi
+          if [ ! -f ci-data/date_created.csv ]; then
+            printf "2023-02-10 10:00\n2023-02-16 14:54\n" > ci-data/date_created.csv
+          fi
+
+          cp "$JMX_FILE" ci-data/testplan_ci.jmx
+          sed -i "s|C:/Users/Tetiana_Dotsenko1/work/mentor_program_jmeter/jmeter_mentor_program/|${GITHUB_WORKSPACE}/ci-data/|g" ci-data/testplan_ci.jmx
+          sed -i "s|192.168.56.101|${{ inputs.domain || '192.168.56.101' }}|g" ci-data/testplan_ci.jmx
+          sed -i "s|<stringProp name=\"Argument.value\">80</stringProp>|<stringProp name=\"Argument.value\">${{ inputs.port || '80' }}</stringProp>|g" ci-data/testplan_ci.jmx
+
+      - name: Execute JMeter Smoke Test
+        run: |
+          /opt/apache-jmeter-${JMETER_VERSION}/bin/jmeter -n \
+            -t ci-data/testplan_ci.jmx \
+            -JUSERS="${{ inputs.users || '1' }}" \
+            -JRAMPUP="${{ inputs.rampup || '1' }}" \
+            -JDURATION="${{ inputs.duration || '60' }}" \
+            -JMAX_NUMBER_OF_POSTS="${{ inputs.max_posts || '100' }}" \
+            -l results/results.jtl \
+            -j results/jmeter.log \
+            -e -o results/html-report
+
+      - name: Upload JMeter Test Results & HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmeter-smoke-test-report-${{ github.run_number }}
+          path: results/
+          retention-days: 14
